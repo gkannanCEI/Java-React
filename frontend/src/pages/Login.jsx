@@ -13,9 +13,13 @@ export default function Login() {
     e.preventDefault();
     setError('');
     
-    const success = await login(username, password);
-    if (success) {
-      navigate('/products');
+    const result = await login(username, password);
+    if (result.success) {
+      if (result.role === 'CASHIER' || result.role === 'cashier') {
+        navigate('/cashier');
+      } else {
+        navigate('/products');
+      }
     } else {
       setError('Invalid username or password');
     }

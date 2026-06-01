@@ -1,5 +1,6 @@
 package com.pos.controller;
 
+import com.pos.dto.StockAdjustRequest;
 import com.pos.entity.Product;
 import com.pos.service.ProductService;
 import org.springframework.http.ResponseEntity;
@@ -40,5 +41,11 @@ public class ProductController {
     public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
         return ResponseEntity.ok().build();
+    }
+
+    @PatchMapping("/{id}/stock")
+    public ResponseEntity<Product> adjustStock(@PathVariable Long id,
+                                               @RequestBody StockAdjustRequest request) {
+        return ResponseEntity.ok(productService.adjustStock(id, request.getDelta()));
     }
 }

@@ -2,7 +2,9 @@ package com.pos.service;
 
 import com.pos.entity.Product;
 import com.pos.repository.ProductRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -20,7 +22,7 @@ public class ProductService {
 
     public Product getProductById(Long id) {
         return productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id " + id));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found with id " + id));
     }
 
     public Product createProduct(Product product) {
@@ -39,5 +41,18 @@ public class ProductService {
 
     public void deleteProduct(Long id) {
         productRepository.deleteById(id);
+    }
+
+    public Product adjustStock(Long id, int delta) {
+        Product product = getProductById(id);
+        int newQuantity = product.getStockQuantity() - delta;
+        if (newQuantity < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Insufficient stock: adjustment would result in negative quantity"
+            );
+        }
+        product.setStockQuantity(newQuantity);
+        return productRepository.save(product);
     }
 }
