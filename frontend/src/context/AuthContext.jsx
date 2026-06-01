@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { login as loginService, register as registerService } from '../services/authService';
+import { login as loginService, register as registerService } from '../services';
 import api from '../services/api';
 
 const AuthContext = createContext();
@@ -18,7 +18,6 @@ export const AuthProvider = ({ children }) => {
 
     if (token && username) {
       setUser({ token, username, role });
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
     setLoading(false);
   }, []);
@@ -33,11 +32,10 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('role', role);
       
       setUser({ token, username, role });
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      return true;
+      return { success: true, role };
     } catch (error) {
       console.error("Login failed", error);
-      return false;
+      return { success: false };
     }
   };
 
@@ -56,7 +54,6 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('username');
     localStorage.removeItem('role');
     setUser(null);
-    delete api.defaults.headers.common['Authorization'];
   };
 
   return (

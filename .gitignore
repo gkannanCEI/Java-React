@@ -52,3 +52,5 @@ backend/src/main/resources/application-secret.properties
 # Other exclusions
 coverage/
 .nyc_output/
+.darts
+.aimfire
