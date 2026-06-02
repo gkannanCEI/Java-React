@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { login as loginService, register as registerService } from '../services';
-import api from '../services/api';
+import { isTokenExpired } from '../services/tokenUtils';
 
 const AuthContext = createContext();
 
@@ -11,14 +11,22 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if token exists in local storage
-    const token = localStorage.getItem('token');
+    const token    = localStorage.getItem('token');
     const username = localStorage.getItem('username');
-    const role = localStorage.getItem('role');
+    const role     = localStorage.getItem('role');
 
     if (token && username) {
-      setUser({ token, username, role });
+      if (isTokenExpired(token)) {
+        // Silently evict the stale session so the user is redirected to login
+        // rather than hammering the backend with guaranteed-401 requests.
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        localStorage.removeItem('role');
+      } else {
+        setUser({ token, username, role });
+      }
     }
+
     setLoading(false);
   }, []);
 
@@ -26,15 +34,15 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await loginService({ username, password });
       const { token, role } = response.data;
-      
+
       localStorage.setItem('token', token);
       localStorage.setItem('username', username);
       localStorage.setItem('role', role);
-      
+
       setUser({ token, username, role });
       return { success: true, role };
     } catch (error) {
-      console.error("Login failed", error);
+      console.error('Login failed', error);
       return { success: false };
     }
   };
@@ -44,7 +52,7 @@ export const AuthProvider = ({ children }) => {
       await registerService({ username, password, role });
       return true;
     } catch (error) {
-      console.error("Registration failed", error);
+      console.error('Registration failed', error);
       return false;
     }
   };

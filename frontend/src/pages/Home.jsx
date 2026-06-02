@@ -1,13 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import headingImg from '../assets/Heading.jpg';
 
 export default function Home() {
   const { user } = useAuth();
 
   return (
     <div className="flex flex-col items-center justify-center h-full mt-20 text-center">
-      <h1 className="text-5xl font-bold text-gray-800 mb-4">Supermarket POS</h1>
+      <img src={headingImg} alt="Supermarket POS Heading" className="max-w-lg w-full mb-6 rounded-xl shadow-md" />
       <p className="text-xl text-gray-600 mb-8 max-w-lg">
         Efficiently manage your inventory and sales with our modern Point of Sale system.
       </p>

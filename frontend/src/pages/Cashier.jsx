@@ -1,11 +1,36 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getProducts, patchStock } from '../services';
+
+// localStorage key for persisting purchase frequency across sessions
+const FREQ_STORAGE_KEY = 'pos_purchase_frequency';
+const PRODUCTS_PER_PAGE = 5;
+
+/** Load frequency map { [productId]: totalUnitsSold } from localStorage */
+function loadFrequency() {
+  try {
+    const raw = localStorage.getItem(FREQ_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Persist frequency map to localStorage */
+function saveFrequency(freq) {
+  try {
+    localStorage.setItem(FREQ_STORAGE_KEY, JSON.stringify(freq));
+  } catch {
+    // localStorage may be unavailable (private mode quota exceeded) — fail silently
+  }
+}
 
 export default function Cashier() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [purchaseFrequency, setPurchaseFrequency] = useState(loadFrequency);
   const [cartItems, setCartItems] = useState([]);
   const [checkingOut, setCheckingOut] = useState(false);
   const [saleMessage, setSaleMessage] = useState(null);
@@ -33,13 +58,36 @@ export default function Cashier() {
   // Filtered product list — derived, not separate state
   const filteredProducts = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return products;
-    return products.filter(
-      (p) =>
-        (p.name && p.name.toLowerCase().includes(term)) ||
-        (p.barcode && p.barcode.toLowerCase().includes(term))
-    );
-  }, [products, searchTerm]);
+    const base = !term
+      ? [...products]
+      : products.filter(
+          (p) =>
+            (p.name && p.name.toLowerCase().includes(term)) ||
+            (p.barcode && p.barcode.toLowerCase().includes(term))
+        );
+
+    // Sort by most frequently purchased (desc), then alphabetically as a tiebreaker
+    return base.sort((a, b) => {
+      const freqDiff =
+        (purchaseFrequency[String(b.id)] ?? 0) -
+        (purchaseFrequency[String(a.id)] ?? 0);
+      if (freqDiff !== 0) return freqDiff;
+      return (a.name ?? '').localeCompare(b.name ?? '');
+    });
+  }, [products, searchTerm, purchaseFrequency]);
+
+  // Reset to page 1 whenever the search term or frequency ranking changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  // Paginated slice — always show exactly PRODUCTS_PER_PAGE items
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE));
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * PRODUCTS_PER_PAGE;
+    return filteredProducts.slice(start, start + PRODUCTS_PER_PAGE);
+  }, [filteredProducts, currentPage]);
+
 
   // Cart totals
   const { subtotal, tax, grandTotal } = useMemo(() => {
@@ -98,6 +146,19 @@ export default function Cashier() {
     setSaleError(null);
   };
 
+  /** Record each sold product's quantity into the persistent frequency map */
+  const updatePurchaseFrequency = useCallback((soldItems) => {
+    setPurchaseFrequency((prev) => {
+      const updated = { ...prev };
+      soldItems.forEach(({ product, quantity }) => {
+        const key = String(product.id);
+        updated[key] = (updated[key] ?? 0) + quantity;
+      });
+      saveFrequency(updated);
+      return updated;
+    });
+  }, []);
+
   const completeSale = async () => {
     if (cartItems.length === 0) return;
     setCheckingOut(true);
@@ -107,7 +168,10 @@ export default function Cashier() {
       await Promise.all(
         cartItems.map((item) => patchStock(item.product.id, item.quantity))
       );
-      
+
+      // Persist frequency data BEFORE clearing the cart
+      updatePurchaseFrequency(cartItems);
+
       setInvoiceDetails({
         items: [...cartItems],
         subtotal,
@@ -125,6 +189,7 @@ export default function Cashier() {
     } finally {
       setCheckingOut(false);
     }
+
   };
 
   return (
@@ -158,50 +223,80 @@ export default function Cashier() {
           )}
 
           {!loading && !fetchError && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredProducts.map((product) => {
-                const outOfStock = product.stockQuantity === 0;
-                return (
-                  <div
-                    key={product.id}
-                    className={`border rounded-lg p-3 flex flex-col gap-2 transition-opacity ${
-                      outOfStock ? 'opacity-50' : 'hover:shadow-md'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-1">
-                      <span className="font-semibold text-gray-800 text-sm leading-tight">
-                        {product.name}
-                      </span>
-                      {product.category && (
-                        <span className="text-xs bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 whitespace-nowrap">
-                          {product.category}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-bold text-green-700">
-                        ${Number(product.price).toFixed(2)}
-                      </span>
-                      <span
-                        className={`text-xs ${
-                          outOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
-                        }`}
-                      >
-                        Stock: {product.stockQuantity}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => addToCart(product)}
-                      disabled={outOfStock}
-                      className="mt-auto w-full text-sm bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            <>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                Frequently bought items
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {paginatedProducts.map((product) => {
+                  const outOfStock = product.stockQuantity === 0;
+                  return (
+                    <div
+                      key={product.id}
+                      className={`border rounded-lg p-3 flex flex-col gap-2 transition-opacity ${
+                        outOfStock ? 'opacity-50' : 'hover:shadow-md'
+                      }`}
                     >
-                      Add to Cart
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="font-semibold text-gray-800 text-sm leading-tight">
+                          {product.name}
+                        </span>
+                        {product.category && (
+                          <span className="text-xs bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 whitespace-nowrap">
+                            {product.category}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-bold text-green-700">
+                          ${Number(product.price).toFixed(2)}
+                        </span>
+                        <span
+                          className={`text-xs ${
+                            outOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
+                          }`}
+                        >
+                          Stock: {product.stockQuantity}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => addToCart(product)}
+                        disabled={outOfStock}
+                        className="mt-auto w-full text-sm bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Add to Cart
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Pagination Controls ── */}
+              {filteredProducts.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50 mt-3">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+            </>
           )}
+
         </div>
       </div>
 

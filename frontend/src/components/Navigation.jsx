@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Logo from '../assets/Logo.webp';
 
 export default function Navigation() {
   const { user, logout } = useAuth();
@@ -8,7 +9,9 @@ export default function Navigation() {
   return (
     <nav className="bg-white shadow-md p-4">
       <div className="container mx-auto flex justify-between items-center">
-        <Link to="/" className="text-xl font-bold text-blue-600">Supermarket POS</Link>
+        <Link to="/">
+          <img src={Logo} alt="Supermarket POS Logo" className="h-10 w-auto object-contain" />
+        </Link>
         <div className="space-x-4 flex items-center">
           {user ? (
             <>

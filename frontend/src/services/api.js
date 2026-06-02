@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isTokenExpired } from './tokenUtils';
 
 /**
  * Base URL:
@@ -15,27 +16,50 @@ const api = axios.create({
   withCredentials: false,
 });
 
-// Add a request interceptor to inject the JWT token
+/**
+ * Request interceptor — attach the JWT or abort early if it has expired.
+ *
+ * Checking expiry client-side before sending the request prevents the
+ * backend from logging spurious "expired JWT" warnings on every page
+ * interaction when the user's session has simply timed out.
+ */
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
+
     if (token) {
+      if (isTokenExpired(token)) {
+        // Evict the stale token and redirect to login without hitting the server.
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        localStorage.removeItem('role');
+        window.location.href = '/login';
+        // Return a rejected promise so the calling code's .catch() is invoked
+        // and no network request is made.
+        return Promise.reject(new Error('Session expired. Please log in again.'));
+      }
+
       config.headers.Authorization = `Bearer ${token}`;
     }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Add a response interceptor to handle authentication errors
+/**
+ * Response interceptor — handle 401 Unauthorized responses.
+ *
+ * This is a safety net for edge cases where the server rejects the token
+ * (e.g. secret key rotation, clock skew beyond the 30-second tolerance).
+ */
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Unauthorized - could trigger a logout or redirect here
       localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('role');
       window.location.href = '/login';
     }
     return Promise.reject(error);

@@ -1,5 +1,8 @@
 package com.pos.security;
 
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.security.SignatureException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,8 +40,16 @@ public class JwtRequestFilter extends OncePerRequestFilter {
             jwt = authorizationHeader.substring(7);
             try {
                 username = jwtUtil.extractUsername(jwt);
+            } catch (ExpiredJwtException e) {
+                // Token expiry is an expected, client-driven condition — not a server error.
+                // Log at WARN without stack trace to keep logs clean.
+                logger.warn("Rejected expired JWT for request [" + request.getMethod() + " " + request.getRequestURI() + "] — client must re-authenticate.");
+            } catch (MalformedJwtException | SignatureException e) {
+                // Tampered or structurally invalid token — log at WARN with cause message only.
+                logger.warn("Rejected invalid JWT for request [" + request.getMethod() + " " + request.getRequestURI() + "]: " + e.getMessage());
             } catch (Exception e) {
-                logger.error("Error extracting username from token", e);
+                // Truly unexpected failure — log at ERROR with full stack trace for diagnostics.
+                logger.error("Unexpected error parsing JWT for request [" + request.getMethod() + " " + request.getRequestURI() + "]", e);
             }
         }
 
